@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 interface Dino {
   id: string;
@@ -127,6 +127,31 @@ const DINOS: Dino[] = [
   },
 ];
 
+// 고생물 복원 일러스트 (DB=Dimitri Bogdanov, NT=Nobu Tamura, mmartyniuk=Mark Martyniuk)
+const DINO_IMAGES: Record<string, string> = {
+  trex:              'Tyrannosaurus_rex_mmartyniuk_wiki.png',
+  triceratops:       'Triceratops_liveDB.jpg',
+  brachiosaurus:     'Brachiosaurus_DB.jpg',
+  velociraptor:      'Velociraptor_dinoguy2.jpg',
+  stegosaurus:       'Stegosaurus_mmartyniuk_wiki.png',
+  pteranodon:        'Pteranodon_longiceps_mmartyniuk.png',
+  ankylosaurus:      'Ankylosaurus_magniventris_mmartyniuk_wiki.png',
+  spinosaurus:       'Spinosaurus_DB.jpg',
+  diplodocus:        'Diplodocus_Carnegie_DB.jpg',
+  parasaurolophus:   'Parasaurolophus_DB.jpg',
+  allosaurus:        'Allosaurus_Revised.jpg',
+  pachycephalosaurus:'Pachycephalosaurus_NT.jpg',
+  iguanodon:         'Iguanodon_DB.jpg',
+  therizinosaurus:   'Therizinosaurus_NT.jpg',
+  carnotaurus:       'Carnotaurus_DB.jpg',
+};
+
+function getDinoImg(id: string): string {
+  const f = DINO_IMAGES[id];
+  if (!f) return '';
+  return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(f)}?width=600`;
+}
+
 const DIET_COLOR: Record<string, string> = {
   '육식': 'text-red-600 bg-red-50 border-red-200',
   '초식': 'text-green-700 bg-green-50 border-green-200',
@@ -145,75 +170,10 @@ function StatItem({ icon, label, value }: { icon: string; label: string; value: 
 }
 
 export default function DinoWorld() {
-  const [images, setImages] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<'전체' | '육식' | '초식'>('전체');
   const [selected, setSelected] = useState<Dino | null>(null);
   const [search, setSearch] = useState('');
   const [imgErr, setImgErr] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    const fetchImages = async () => {
-      const results: Record<string, string> = {};
-      const BAD = /skeleton|fossil|museum|specimen|bone|mount|cast|skull|teeth|tooth/i;
-      const GOOD = /_DB\.|_NT\.|life|restoration|reconstruction|mmartyniuk|nobu/i;
-
-      const getThumb = async (title: string): Promise<string | null> => {
-        try {
-          const r = await fetch(
-            `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json&origin=*`
-          );
-          const d = await r.json();
-          const pages = d.query?.pages;
-          if (!pages) return null;
-          return pages[Object.keys(pages)[0]]?.imageinfo?.[0]?.thumburl ?? null;
-        } catch { return null; }
-      };
-
-      await Promise.all(
-        DINOS.map(async (dino) => {
-          const genus = dino.wiki.split('_')[0];
-
-          // 1차: Wikimedia Commons "Restoration images of X" 카테고리 (생전 복원 일러스트 전용)
-          for (const cat of [
-            `Restoration_images_of_${genus}`,
-            `Restoration_images_of_${dino.wiki}`,
-          ]) {
-            try {
-              const r = await fetch(
-                `https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=${encodeURIComponent(`Category:${cat}`)}&cmtype=file&cmlimit=30&format=json&origin=*`
-              );
-              const d = await r.json();
-              const members: { title: string }[] = d.query?.categorymembers ?? [];
-              const files = members.filter(m => /\.(jpg|jpeg|png)$/i.test(m.title) && !BAD.test(m.title));
-              const chosen = files.find(m => GOOD.test(m.title)) ?? files[0];
-              if (chosen) {
-                const url = await getThumb(chosen.title);
-                if (url) { results[dino.id] = url; return; }
-              }
-            } catch {}
-          }
-
-          // 2차: 일러스트 키워드 텍스트 검색
-          for (const q of [`${genus} life restoration`, `${genus} DB`, `${genus} NT`]) {
-            try {
-              const s = await fetch(
-                `https://commons.wikimedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&srnamespace=6&srlimit=10&format=json&origin=*`
-              );
-              const sd = await s.json();
-              const hits: { title: string }[] = sd.query?.search ?? [];
-              const file = hits.find(h => /\.(jpg|jpeg|png)$/i.test(h.title) && !BAD.test(h.title));
-              if (file) {
-                const url = await getThumb(file.title);
-                if (url) { results[dino.id] = url; return; }
-              }
-            } catch {}
-          }
-        })
-      );
-      setImages(results);
-    };
-    fetchImages();
-  }, []);
 
   const filtered = DINOS
     .filter(d => filter === '전체' || d.diet === filter)
@@ -253,11 +213,9 @@ export default function DinoWorld() {
           <button key={dino.id} onClick={() => setSelected(dino)}
             className={`bg-white rounded-2xl shadow border-t-4 overflow-hidden text-left transition-all active:scale-95 hover:shadow-md ${DIET_TOP[dino.diet]}`}>
             <div className="w-full h-40 bg-white flex items-center justify-center overflow-hidden">
-              {images[dino.id] && !imgErr[dino.id] ? (
-                <img src={images[dino.id]} alt={dino.ko} className="w-full h-full object-contain p-2"
+              {!imgErr[dino.id] ? (
+                <img src={getDinoImg(dino.id)} alt={dino.ko} className="w-full h-full object-contain p-2"
                   onError={() => setImgErr(prev => ({ ...prev, [dino.id]: true }))} />
-              ) : !images[dino.id] ? (
-                <span className="text-3xl text-gray-300 animate-pulse">⏳</span>
               ) : (
                 <span className="text-7xl">{dino.emoji}</span>
               )}
@@ -294,8 +252,9 @@ export default function DinoWorld() {
           <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[92vh] overflow-y-auto relative"
             onClick={e => e.stopPropagation()}>
             <div className="w-full h-64 bg-gray-50 flex items-center justify-center overflow-hidden rounded-t-3xl px-4 pt-4">
-              {images[selected.id] && !imgErr[selected.id] ? (
-                <img src={images[selected.id]} alt={selected.ko} className="w-full h-full object-contain" />
+              {!imgErr[selected.id] ? (
+                <img src={getDinoImg(selected.id)} alt={selected.ko} className="w-full h-full object-contain"
+                  onError={() => setImgErr(prev => ({ ...prev, [selected.id]: true }))} />
               ) : (
                 <span className="text-9xl">{selected.emoji}</span>
               )}
