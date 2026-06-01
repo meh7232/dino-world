@@ -154,43 +154,60 @@ export default function DinoWorld() {
   useEffect(() => {
     const fetchImages = async () => {
       const results: Record<string, string> = {};
+      const BAD = /skeleton|fossil|museum|specimen|bone|mount|cast|skull|teeth|tooth/i;
+      const GOOD = /_DB\.|_NT\.|life|restoration|reconstruction|mmartyniuk|nobu/i;
+
+      const getThumb = async (title: string): Promise<string | null> => {
+        try {
+          const r = await fetch(
+            `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json&origin=*`
+          );
+          const d = await r.json();
+          const pages = d.query?.pages;
+          if (!pages) return null;
+          return pages[Object.keys(pages)[0]]?.imageinfo?.[0]?.thumburl ?? null;
+        } catch { return null; }
+      };
+
       await Promise.all(
         DINOS.map(async (dino) => {
           const genus = dino.wiki.split('_')[0];
-          // Nobu Tamura(_NT) 파일 검색 → 고품질 복원 일러스트
-          for (const q of [`${genus}_NT`, `${dino.wiki}_NT`, `${genus} Nobu Tamura`]) {
+
+          // 1차: Wikimedia Commons "Restoration images of X" 카테고리 (생전 복원 일러스트 전용)
+          for (const cat of [
+            `Restoration_images_of_${genus}`,
+            `Restoration_images_of_${dino.wiki}`,
+          ]) {
             try {
-              const s = await fetch(
-                `https://commons.wikimedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&srnamespace=6&srlimit=3&format=json&origin=*`
+              const r = await fetch(
+                `https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=${encodeURIComponent(`Category:${cat}`)}&cmtype=file&cmlimit=30&format=json&origin=*`
               );
-              const sd = await s.json();
-              const hits: { title: string }[] = sd.query?.search ?? [];
-              const file = hits.find(h => /\.(jpg|jpeg|png)$/i.test(h.title));
-              if (file) {
-                const ir = await fetch(
-                  `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(file.title)}&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json&origin=*`
-                );
-                const id = await ir.json();
-                const p = id.query?.pages;
-                if (p) {
-                  const url = p[Object.keys(p)[0]]?.imageinfo?.[0]?.thumburl;
-                  if (url) { results[dino.id] = url; return; }
-                }
+              const d = await r.json();
+              const members: { title: string }[] = d.query?.categorymembers ?? [];
+              const files = members.filter(m => /\.(jpg|jpeg|png)$/i.test(m.title) && !BAD.test(m.title));
+              const chosen = files.find(m => GOOD.test(m.title)) ?? files[0];
+              if (chosen) {
+                const url = await getThumb(chosen.title);
+                if (url) { results[dino.id] = url; return; }
               }
             } catch {}
           }
-          // 폴백: Wikipedia 대표 이미지
-          try {
-            const r = await fetch(
-              `https://en.wikipedia.org/w/api.php?action=query&titles=${genus}&prop=pageimages&pithumbsize=600&format=json&origin=*`
-            );
-            const d = await r.json();
-            const p = d.query?.pages;
-            if (p) {
-              const t = p[Object.keys(p)[0]]?.thumbnail?.source;
-              if (t) results[dino.id] = t;
-            }
-          } catch {}
+
+          // 2차: 일러스트 키워드 텍스트 검색
+          for (const q of [`${genus} life restoration`, `${genus} DB`, `${genus} NT`]) {
+            try {
+              const s = await fetch(
+                `https://commons.wikimedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&srnamespace=6&srlimit=10&format=json&origin=*`
+              );
+              const sd = await s.json();
+              const hits: { title: string }[] = sd.query?.search ?? [];
+              const file = hits.find(h => /\.(jpg|jpeg|png)$/i.test(h.title) && !BAD.test(h.title));
+              if (file) {
+                const url = await getThumb(file.title);
+                if (url) { results[dino.id] = url; return; }
+              }
+            } catch {}
+          }
         })
       );
       setImages(results);
