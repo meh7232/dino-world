@@ -152,37 +152,53 @@ export default function DinoWorld() {
   const [imgErr, setImgErr] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
+    const EXCLUDE = ['skeleton','fossil','skull','bone','mount','museum','diagram','map','cladogram','phylo','footprint','track','tooth','teeth','cast','specimen','holotype'];
+
     const fetchImages = async () => {
       const results: Record<string, string> = {};
       await Promise.all(
         DINOS.map(async (dino) => {
           try {
-            // 1차: Wikimedia Commons 복원 이미지 카테고리에서 가져오기
-            const catRes = await fetch(
-              `https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Category:Restoration_images_of_${dino.wiki}&cmlimit=10&cmtype=file&format=json&origin=*`
+            // 1차: Wikipedia 아티클 이미지 목록에서 복원화 필터링
+            const listRes = await fetch(
+              `https://en.wikipedia.org/w/api.php?action=query&titles=${dino.wiki}&prop=images&imlimit=50&format=json&origin=*`
             );
-            const catData = await catRes.json();
-            const members: { title: string }[] = catData.query?.categorymembers ?? [];
-            const colorFiles = members.filter(m => /\.(jpg|jpeg|png)$/i.test(m.title));
-            const fileTitle = (colorFiles[0] ?? members[0])?.title;
+            const listData = await listRes.json();
+            const listPages = listData.query?.pages;
+            const allImgs: { title: string }[] = listPages?.[Object.keys(listPages)[0]]?.images ?? [];
 
-            if (fileTitle) {
+            // 화석·뼈대 키워드 제외, jpg/png만
+            const candidates = allImgs.filter(img => {
+              const t = img.title.toLowerCase();
+              return /\.(jpg|jpeg|png)$/i.test(t) && !EXCLUDE.some(kw => t.includes(kw));
+            });
+
+            // 복원화 키워드 우선
+            const PREFER = ['restoration','life','reconstruction','artist','render','illustration','colour','color'];
+            candidates.sort((a, b) => {
+              const aScore = PREFER.filter(k => a.title.toLowerCase().includes(k)).length;
+              const bScore = PREFER.filter(k => b.title.toLowerCase().includes(k)).length;
+              return bScore - aScore;
+            });
+
+            const best = candidates[0];
+            if (best) {
               const imgRes = await fetch(
-                `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(fileTitle)}&prop=imageinfo&iiprop=url&iiurlwidth=500&format=json&origin=*`
+                `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(best.title)}&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json&origin=*`
               );
               const imgData = await imgRes.json();
-              const pages = imgData.query?.pages;
-              if (pages) {
-                const thumbUrl = pages[Object.keys(pages)[0]]?.imageinfo?.[0]?.thumburl;
+              const imgPages = imgData.query?.pages;
+              if (imgPages) {
+                const thumbUrl = imgPages[Object.keys(imgPages)[0]]?.imageinfo?.[0]?.thumburl;
                 if (thumbUrl) { results[dino.id] = thumbUrl; return; }
               }
             }
           } catch {}
 
-          // 2차 폴백: Wikipedia 페이지 썸네일
+          // 2차 폴백: Wikipedia 대표 썸네일
           try {
             const res = await fetch(
-              `https://en.wikipedia.org/w/api.php?action=query&titles=${dino.wiki}&prop=pageimages&pithumbsize=500&format=json&origin=*`
+              `https://en.wikipedia.org/w/api.php?action=query&titles=${dino.wiki}&prop=pageimages&pithumbsize=600&format=json&origin=*`
             );
             const data = await res.json();
             const pages = data.query?.pages;
