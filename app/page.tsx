@@ -157,14 +157,37 @@ export default function DinoWorld() {
       await Promise.all(
         DINOS.map(async (dino) => {
           try {
+            // 1차: Wikimedia Commons 복원 이미지 카테고리에서 가져오기
+            const catRes = await fetch(
+              `https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Category:Restoration_images_of_${dino.wiki}&cmlimit=10&cmtype=file&format=json&origin=*`
+            );
+            const catData = await catRes.json();
+            const members: { title: string }[] = catData.query?.categorymembers ?? [];
+            const colorFiles = members.filter(m => /\.(jpg|jpeg|png)$/i.test(m.title));
+            const fileTitle = (colorFiles[0] ?? members[0])?.title;
+
+            if (fileTitle) {
+              const imgRes = await fetch(
+                `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(fileTitle)}&prop=imageinfo&iiprop=url&iiurlwidth=500&format=json&origin=*`
+              );
+              const imgData = await imgRes.json();
+              const pages = imgData.query?.pages;
+              if (pages) {
+                const thumbUrl = pages[Object.keys(pages)[0]]?.imageinfo?.[0]?.thumburl;
+                if (thumbUrl) { results[dino.id] = thumbUrl; return; }
+              }
+            }
+          } catch {}
+
+          // 2차 폴백: Wikipedia 페이지 썸네일
+          try {
             const res = await fetch(
               `https://en.wikipedia.org/w/api.php?action=query&titles=${dino.wiki}&prop=pageimages&pithumbsize=500&format=json&origin=*`
             );
             const data = await res.json();
             const pages = data.query?.pages;
             if (pages) {
-              const pageId = Object.keys(pages)[0];
-              const thumb = pages[pageId]?.thumbnail?.source;
+              const thumb = pages[Object.keys(pages)[0]]?.thumbnail?.source;
               if (thumb) results[dino.id] = thumb;
             }
           } catch {}
